@@ -1024,3 +1024,922 @@ self.addEventListener('activate', event => {
   );
 });
 ```
+
+## 23. Web Workers y Multithreading
+
+JavaScript es single-threaded, pero los Web Workers permiten ejecutar código en hilos separados.
+
+```javascript
+// Crear un worker (archivo principal)
+const miWorker = new Worker('worker.js');
+
+// Enviar datos al worker
+miWorker.postMessage({
+  accion: 'procesar',
+  datos: [1, 2, 3, 4, 5, 6, 7, 8]
+});
+
+// Recibir resultados del worker
+miWorker.onmessage = function(event) {
+  console.log('Resultado recibido del worker:', event.data);
+};
+
+// Manejar errores
+miWorker.onerror = function(error) {
+  console.error('Error en el worker:', error.message);
+};
+
+// Terminar el worker cuando ya no se necesite
+function terminarWorker() {
+  miWorker.terminate();
+  console.log('Worker terminado');
+}
+
+// Contenido de worker.js
+self.onmessage = function(event) {
+  const datos = event.data;
+  
+  if (datos.accion === 'procesar') {
+    // Operación intensiva que no bloquea el hilo principal
+    const resultado = procesarDatos(datos.datos);
+    self.postMessage(resultado);
+  }
+};
+
+function procesarDatos(numeros) {
+  // Simulación de procesamiento intensivo
+  let resultado = 0;
+  for (let i = 0; i < 10000000; i++) {
+    resultado += numeros.reduce((a, b) => a + Math.sqrt(b * i), 0);
+  }
+  return resultado;
+}
+
+// Worker compartido (Shared Worker)
+// En archivo principal 1
+const sharedWorker = new SharedWorker('shared-worker.js');
+sharedWorker.port.start();
+sharedWorker.port.postMessage('Hola desde página 1');
+
+// En archivo principal 2
+const otroSharedWorker = new SharedWorker('shared-worker.js');
+otroSharedWorker.port.start();
+otroSharedWorker.port.postMessage('Hola desde página 2');
+
+// shared-worker.js
+const conexiones = [];
+
+self.onconnect = function(e) {
+  const puerto = e.ports[0];
+  conexiones.push(puerto);
+  
+  puerto.onmessage = function(e) {
+    console.log('Mensaje recibido en shared worker:', e.data);
+    
+    // Broadcast a todas las conexiones
+    conexiones.forEach(p => {
+      p.postMessage('Mensaje recibido y reenviado: ' + e.data);
+    });
+  };
+  
+  puerto.start();
+};
+```
+
+## 24. Generadores e Iteradores
+
+Permiten crear funciones que pueden pausar y reanudar su ejecución.
+
+```javascript
+// Iterador básico
+function crearIterador(array) {
+  let indice = 0;
+  
+  return {
+    next: function() {
+      if (indice < array.length) {
+        return { value: array[indice++], done: false };
+      } else {
+        return { done: true };
+      }
+    }
+  };
+}
+
+const miIterador = crearIterador([1, 2, 3]);
+console.log(miIterador.next()); // { value: 1, done: false }
+console.log(miIterador.next()); // { value: 2, done: false }
+console.log(miIterador.next()); // { value: 3, done: false }
+console.log(miIterador.next()); // { done: true }
+
+// Generador básico
+function* generadorSimple() {
+  yield 1;
+  yield 2;
+  yield 3;
+}
+
+const gen = generadorSimple();
+console.log(gen.next()); // { value: 1, done: false }
+console.log(gen.next()); // { value: 2, done: false }
+console.log(gen.next()); // { value: 3, done: false }
+console.log(gen.next()); // { value: undefined, done: true }
+
+// Generador con parámetros
+function* secuencia(inicio, fin) {
+  for (let i = inicio; i <= fin; i++) {
+    yield i;
+  }
+}
+
+// Uso con for...of
+for (const num of secuencia(5, 10)) {
+  console.log(num); // 5, 6, 7, 8, 9, 10
+}
+
+// Generadores para procesar flujos de datos
+function* procesarFlujo(datos) {
+  for (const item of datos) {
+    // Procesar y transformar cada elemento
+    const transformado = item * 2;
+    yield transformado;
+  }
+}
+
+// Delegación de generadores
+function* generadorPrincipal() {
+  yield 'Inicio';
+  yield* secuencia(1, 3); // Delega el control a otro generador
+  yield 'Fin';
+}
+
+const principal = generadorPrincipal();
+console.log([...principal]); // ['Inicio', 1, 2, 3, 'Fin']
+
+// Generadores para asincronía (pre-async/await)
+function ejecutarAsync(generador) {
+  const iterador = generador();
+  
+  function manejar(resultado) {
+    if (resultado.done) return Promise.resolve(resultado.value);
+    
+    return Promise.resolve(resultado.value)
+      .then(res => manejar(iterador.next(res)))
+      .catch(err => manejar(iterador.throw(err)));
+  }
+  
+  return manejar(iterador.next());
+}
+
+// Uso para secuencias de promesas
+ejecutarAsync(function* () {
+  try {
+    const usuario = yield fetchUsuario(1);
+    const posts = yield fetchPosts(usuario.id);
+    return posts;
+  } catch (error) {
+    console.error(error);
+  }
+});
+```
+
+## 25. Manejo del DOM y Optimización de Rendimiento
+
+El DOM puede ser un cuello de botella en aplicaciones web.
+
+```javascript
+// Anti-patrón: muchas manipulaciones individuales
+function agregarElementosIneficiente(cantidad) {
+  const lista = document.getElementById('lista');
+  
+  for (let i = 0; i < cantidad; i++) {
+    const li = document.createElement('li');
+    li.textContent = `Elemento ${i}`;
+    lista.appendChild(li); // Causa reflow en cada iteración
+  }
+}
+
+// Mejor: DocumentFragment
+function agregarElementosOptimizado(cantidad) {
+  const fragmento = document.createDocumentFragment();
+  const lista = document.getElementById('lista');
+  
+  for (let i = 0; i < cantidad; i++) {
+    const li = document.createElement('li');
+    li.textContent = `Elemento ${i}`;
+    fragmento.appendChild(li);
+  }
+  
+  // Un solo reflow al final
+  lista.appendChild(fragmento);
+}
+
+// Virtual DOM simplificado
+function crearElementoVirtual(tipo, props, ...hijos) {
+  return { tipo, props, hijos };
+}
+
+function renderizar(elementoVirtual, contenedor) {
+  // Convertir elemento virtual a DOM real
+  const elemento = document.createElement(elementoVirtual.tipo);
+  
+  // Establecer propiedades
+  Object.entries(elementoVirtual.props || {}).forEach(([key, value]) => {
+    if (key === 'className') {
+      elemento.className = value;
+    } else if (key === 'onClick') {
+      elemento.addEventListener('click', value);
+    } else {
+      elemento.setAttribute(key, value);
+    }
+  });
+  
+  // Agregar hijos
+  elementoVirtual.hijos.forEach(hijo => {
+    if (typeof hijo === 'string') {
+      elemento.appendChild(document.createTextNode(hijo));
+    } else {
+      renderizar(hijo, elemento);
+    }
+  });
+  
+  contenedor.appendChild(elemento);
+}
+
+// Uso
+const app = crearElementoVirtual(
+  'div',
+  { className: 'container' },
+  crearElementoVirtual(
+    'h1',
+    { className: 'title' },
+    'Mi Aplicación'
+  ),
+  crearElementoVirtual(
+    'button',
+    { onClick: () => alert('¡Hola!') },
+    'Saludar'
+  )
+);
+
+renderizar(app, document.getElementById('root'));
+
+// Event delegation
+document.getElementById('lista').addEventListener('click', function(event) {
+  if (event.target.matches('li')) {
+    console.log('Clic en elemento:', event.target.textContent);
+  }
+});
+
+// Optimización de repintado con requestAnimationFrame
+function animarElemento(elemento, duracion) {
+  const inicio = performance.now();
+  let animacionId;
+  
+  function animar(tiempo) {
+    const progreso = (tiempo - inicio) / duracion;
+    
+    if (progreso < 1) {
+      const x = progreso * 300;
+      elemento.style.transform = `translateX(${x}px)`;
+      animacionId = requestAnimationFrame(animar);
+    } else {
+      elemento.style.transform = `translateX(300px)`;
+    }
+  }
+  
+  animacionId = requestAnimationFrame(animar);
+  return () => cancelAnimationFrame(animacionId); // Para detener
+}
+```
+
+## 26. Programación Funcional en JavaScript
+
+Aprovechar el enfoque funcional puede mejorar la calidad del código.
+
+```javascript
+// Inmutabilidad
+const original = Object.freeze([1, 2, 3]);
+// original.push(4); // Error en strict mode
+
+// ✅ En lugar de mutar, crear nuevo
+const nuevo = [...original, 4];
+
+// Funciones puras
+// ❌ Función impura (depende del estado exterior)
+let total = 0;
+function sumarAlTotal(valor) {
+  total += valor; // Efecto secundario
+  return total;
+}
+
+// ✅ Función pura
+function sumar(a, b) {
+  return a + b; // Sin efectos secundarios, misma entrada -> misma salida
+}
+
+// Higher-order functions
+function crearMultiplicador(factor) {
+  return function(numero) {
+    return numero * factor;
+  };
+}
+
+const duplicar = crearMultiplicador(2);
+const triplicar = crearMultiplicador(3);
+
+console.log(duplicar(5)); // 10
+console.log(triplicar(5)); // 15
+
+// Composición de funciones
+const reemplazarEspacios = str => str.replace(/\s+/g, '-');
+const minusculas = str => str.toLowerCase();
+const recortar = str => str.slice(0, 50);
+
+// Composición manual
+const slugify = str => reemplazarEspacios(minusculas(recortar(str)));
+
+// Helper para composición
+function compose(...fns) {
+  return function(x) {
+    return fns.reduceRight((valor, fn) => fn(valor), x);
+  };
+}
+
+const slugifyMejor = compose(reemplazarEspacios, minusculas, recortar);
+console.log(slugifyMejor('Título Del Artículo Muy Largo')); // 'título-del-artículo-muy-largo'
+
+// Currying
+function curriedSum(a) {
+  return function(b) {
+    return function(c) {
+      return a + b + c;
+    };
+  };
+}
+
+// Uso
+console.log(curriedSum(1)(2)(3)); // 6
+
+// Helper para currying
+function curry(fn) {
+  return function curried(...args) {
+    if (args.length >= fn.length) {
+      return fn.apply(this, args);
+    } else {
+      return function(...args2) {
+        return curried.apply(this, args.concat(args2));
+      };
+    }
+  };
+}
+
+const suma3 = (a, b, c) => a + b + c;
+const sumaCurried = curry(suma3);
+
+console.log(sumaCurried(1)(2)(3)); // 6
+console.log(sumaCurried(1, 2)(3)); // 6
+console.log(sumaCurried(1)(2, 3)); // 6
+```
+
+## 27. Patrones de Diseño en JavaScript
+
+Los patrones de diseño resuelven problemas comunes de la manera más eficiente.
+
+```javascript
+// Patrón Singleton
+class Database {
+  constructor(uri) {
+    if (Database.instance) {
+      return Database.instance;
+    }
+    
+    this.uri = uri;
+    this.connection = this.connect();
+    Database.instance = this;
+  }
+  
+  connect() {
+    console.log(`Conectando a ${this.uri}...`);
+    return { status: 'connected' };
+  }
+  
+  query(sql) {
+    console.log(`Ejecutando: ${sql}`);
+    return { results: [] };
+  }
+}
+
+const db1 = new Database('mongodb://localhost:27017');
+const db2 = new Database('otra-uri'); // Ignorado, devuelve la instancia previa
+console.log(db1 === db2); // true
+
+// Patrón Factory
+class UserFactory {
+  createUser(type, data) {
+    switch (type) {
+      case 'admin':
+        return new AdminUser(data);
+      case 'customer':
+        return new CustomerUser(data);
+      case 'guest':
+        return new GuestUser(data);
+      default:
+        throw new Error(`Tipo de usuario desconocido: ${type}`);
+    }
+  }
+}
+
+// Patrón Observer
+class EventEmitter {
+  constructor() {
+    this.events = {};
+  }
+  
+  on(event, listener) {
+    if (!this.events[event]) {
+      this.events[event] = [];
+    }
+    
+    this.events[event].push(listener);
+    return () => this.off(event, listener);
+  }
+  
+  off(event, listener) {
+    if (!this.events[event]) return;
+    
+    this.events[event] = this.events[event]
+      .filter(l => l !== listener);
+  }
+  
+  emit(event, ...args) {
+    if (!this.events[event]) return;
+    
+    this.events[event].forEach(listener => {
+      listener.apply(this, args);
+    });
+  }
+  
+  once(event, listener) {
+    const remove = this.on(event, (...args) => {
+      remove();
+      listener.apply(this, args);
+    });
+  }
+}
+
+// Uso
+const emitter = new EventEmitter();
+const unsubscribe = emitter.on('data', data => {
+  console.log('Datos recibidos:', data);
+});
+
+emitter.emit('data', { id: 1, name: 'Juan' });
+unsubscribe(); // Cancelar suscripción
+
+// Patrón Decorator
+function readonly(target, property, descriptor) {
+  descriptor.writable = false;
+  return descriptor;
+}
+
+class Usuario {
+  constructor(nombre) {
+    this.nombre = nombre;
+  }
+  
+  @readonly
+  getId() {
+    return `user-${Math.random().toString(36).substr(2, 9)}`;
+  }
+}
+
+// Implementación sin decoradores (ES5+)
+const Usuario = (function() {
+  function Usuario(nombre) {
+    this.nombre = nombre;
+  }
+  
+  Object.defineProperty(Usuario.prototype, 'getId', {
+    value: function() {
+      return `user-${Math.random().toString(36).substr(2, 9)}`;
+    },
+    writable: false
+  });
+  
+  return Usuario;
+})();
+```
+
+## 28. Seguridad en JavaScript y OWASP Top 10
+
+Proteger tus aplicaciones contra vulnerabilidades comunes.
+
+```javascript
+// Cross-Site Scripting (XSS)
+// ❌ Inseguro
+function mostrarComentario(comentario) {
+  // Peligroso: inserta HTML sin sanitizar
+  document.getElementById('comentarios').innerHTML += comentario;
+}
+
+// ✅ Seguro: sanitización de HTML
+function mostrarComentarioSeguro(comentario) {
+  const div = document.createElement('div');
+  div.textContent = comentario; // Escapa automáticamente
+  document.getElementById('comentarios').appendChild(div);
+}
+
+// ✅ Usando librería DOMPurify para permitir HTML seguro
+function mostrarComentarioHTML(comentarioHTML) {
+  const sanitizado = DOMPurify.sanitize(comentarioHTML, {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a'],
+    ALLOWED_ATTR: ['href']
+  });
+  document.getElementById('comentarios').innerHTML += sanitizado;
+}
+
+// Inyección SQL (en contexto Node.js)
+// ❌ Inseguro
+function buscarUsuarioInseguro(username) {
+  // Vulnerable a inyección SQL
+  const query = `SELECT * FROM usuarios WHERE username = '${username}'`;
+  return db.query(query);
+}
+
+// ✅ Seguro: parámetros preparados
+function buscarUsuarioSeguro(username) {
+  const query = `SELECT * FROM usuarios WHERE username = ?`;
+  return db.query(query, [username]);
+}
+
+// Cross-Site Request Forgery (CSRF)
+// ✅ Generar token anti-CSRF
+function generarCSRFToken() {
+  const token = Math.random().toString(36).substring(2, 15);
+  sessionStorage.setItem('csrf_token', token);
+  return token;
+}
+
+// Incluir token en formularios
+document.querySelectorAll('form').forEach(form => {
+  const tokenInput = document.createElement('input');
+  tokenInput.type = 'hidden';
+  tokenInput.name = 'csrf_token';
+  tokenInput.value = generarCSRFToken();
+  form.appendChild(tokenInput);
+});
+
+// Content Security Policy
+// Configurar CSP en el servidor/meta tag para prevenir XSS
+// <meta http-equiv="Content-Security-Policy" 
+//       content="default-src 'self'; script-src 'self'">
+
+// Evitar eval y código dinámico
+// ❌ Inseguro
+function ejecutarCodigo(codigo) {
+  eval(codigo); // Extremadamente peligroso
+}
+
+// ❌ Igualmente inseguro
+const funcionPeligrosa = new Function('a', 'b', 'return a + b');
+
+// Validate and sanitize input
+function validarEmail(email) {
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return regex.test(email);
+}
+
+// Evitar Open Redirect
+function redirigirSeguro(url) {
+  // Lista de dominios permitidos
+  const dominiosPermitidos = ['miapp.com', 'api.miapp.com'];
+  
+  try {
+    const destino = new URL(url);
+    if (dominiosPermitidos.includes(destino.hostname)) {
+      window.location.href = url;
+    } else {
+      // Redirigir a página segura
+      window.location.href = '/error-redirect';
+    }
+  } catch (e) {
+    // URL malformada
+    window.location.href = '/';
+  }
+}
+```
+
+## 29. TypeScript y Tipos en JavaScript
+
+Aunque JavaScript es de tipado dinámico, los tipos mejoran la calidad del código.
+
+```javascript
+// JavaScript con JSDoc para tipos
+/**
+ * Calcula el área de un rectángulo.
+ * @param {number} ancho - El ancho del rectángulo
+ * @param {number} alto - El alto del rectángulo
+ * @returns {number} El área calculada
+ */
+function calcularArea(ancho, alto) {
+  return ancho * alto;
+}
+
+// Validación de tipos en tiempo de ejecución
+function sumar(a, b) {
+  if (typeof a !== 'number' || typeof b !== 'number') {
+    throw new TypeError('Los argumentos deben ser números');
+  }
+  return a + b;
+}
+
+// Esquema de validación con librería
+const esquemaUsuario = {
+  nombre: {
+    type: 'string',
+    required: true,
+    minLength: 2
+  },
+  edad: {
+    type: 'number',
+    required: true,
+    min: 18
+  },
+  email: {
+    type: 'string',
+    required: true,
+    pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  }
+};
+
+function validarObjeto(objeto, esquema) {
+  const errores = [];
+  
+  Object.keys(esquema).forEach(propiedad => {
+    const reglas = esquema[propiedad];
+    const valor = objeto[propiedad];
+    
+    // Verificar requerido
+    if (reglas.required && (valor === undefined || valor === null)) {
+      errores.push(`${propiedad} es requerido`);
+      return;
+    }
+    
+    // Si no hay valor y no es requerido, omitir
+    if (valor === undefined || valor === null) return;
+    
+    // Verificar tipo
+    if (reglas.type && typeof valor !== reglas.type) {
+      errores.push(`${propiedad} debe ser de tipo ${reglas.type}`);
+    }
+    
+    // Longitud mínima
+    if (reglas.minLength && valor.length < reglas.minLength) {
+      errores.push(`${propiedad} debe tener al menos ${reglas.minLength} caracteres`);
+    }
+    
+    // Valor mínimo
+    if (reglas.min !== undefined && valor < reglas.min) {
+      errores.push(`${propiedad} debe ser al menos ${reglas.min}`);
+    }
+    
+    // Patrón regex
+    if (reglas.pattern && !reglas.pattern.test(valor)) {
+      errores.push(`${propiedad} tiene un formato inválido`);
+    }
+  });
+  
+  return {
+    esValido: errores.length === 0,
+    errores
+  };
+}
+
+// TypeScript (ejemplo informativo)
+/*
+interface Usuario {
+  id: number;
+  nombre: string;
+  email: string;
+  activo: boolean;
+  roles: string[];
+}
+
+function buscarUsuario(id: number): Promise<Usuario | null> {
+  return fetch(`/api/usuarios/${id}`)
+    .then(res => res.json())
+    .then(data => data as Usuario)
+    .catch(() => null);
+}
+
+// Genéricos
+function primero<T>(array: T[]): T | undefined {
+  return array.length > 0 ? array[0] : undefined;
+}
+
+const primerNumero = primero<number>([1, 2, 3]); // number
+const primerString = primero<string>(['a', 'b']); // string
+*/
+
+// Type Guards en JavaScript
+function esArreglo(valor) {
+  return Array.isArray(valor);
+}
+
+function esObjeto(valor) {
+  return typeof valor === 'object' && valor !== null && !Array.isArray(valor);
+}
+
+function esFuncion(valor) {
+  return typeof valor === 'function';
+}
+
+// Type narrowing con instanceof
+function procesarDato(dato) {
+  if (dato instanceof Date) {
+    return dato.toISOString();
+  } else if (dato instanceof Error) {
+    return dato.message;
+  } else if (Array.isArray(dato)) {
+    return dato.length;
+  } else {
+    return String(dato);
+  }
+}
+```
+
+## 30. Optimización y Patrones de Rendimiento
+
+Técnicas avanzadas para mejorar el rendimiento de tus aplicaciones.
+
+```javascript
+// Memoización para funciones costosas
+function memoize(fn) {
+  const cache = new Map();
+  
+  return function(...args) {
+    const key = JSON.stringify(args);
+    
+    if (cache.has(key)) {
+      console.log('Resultado de caché');
+      return cache.get(key);
+    }
+    
+    console.log('Calculando resultado');
+    const resultado = fn.apply(this, args);
+    cache.set(key, resultado);
+    return resultado;
+  };
+}
+
+// Uso de memoización
+const calcularFibonacci = memoize(function fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 1) + fib(n - 2);
+});
+
+console.log(calcularFibonacci(40)); // Lento la primera vez
+console.log(calcularFibonacci(40)); // Instantáneo desde caché
+
+// Debounce para operaciones frecuentes
+function debounce(fn, delay) {
+  let timeoutId;
+  
+  return function(...args) {
+    clearTimeout(timeoutId);
+    
+    timeoutId = setTimeout(() => {
+      fn.apply(this, args);
+    }, delay);
+  };
+}
+
+// Uso de debounce
+const buscarOptimizado = debounce(function(texto) {
+  console.log(`Buscando: ${texto}`);
+  // Lógica de búsqueda
+}, 300);
+
+// Llamar a cada cambio
+document.querySelector('#buscador')
+  .addEventListener('input', e => buscarOptimizado(e.target.value));
+
+// Throttle para limitar la frecuencia
+function throttle(fn, delay) {
+  let lastCall = 0;
+  
+  return function(...args) {
+    const now = Date.now();
+    
+    if (now - lastCall >= delay) {
+      fn.apply(this, args);
+      lastCall = now;
+    }
+  };
+}
+
+// Uso de throttle
+const manejarScroll = throttle(function() {
+  console.log('Procesando scroll...');
+  // Lógica de scroll
+}, 100);
+
+window.addEventListener('scroll', manejarScroll);
+
+// Lazy loading de imágenes
+function lazyLoadImages() {
+  const images = document.querySelectorAll('img[data-src]');
+  
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const img = entry.target;
+        img.src = img.dataset.src;
+        img.removeAttribute('data-src');
+        observer.unobserve(img);
+      }
+    });
+  });
+  
+  images.forEach(img => observer.observe(img));
+}
+
+// Code splitting y carga bajo demanda
+async function cargarModulo() {
+  if (condicion) {
+    // Importación dinámica (webpack/rollup/parcel lo optimizarán)
+    const { funcionA } = await import('./moduloA.js');
+    funcionA();
+  }
+}
+
+// Optimizar reflows y repaints
+function optimizarAnimacion() {
+  const elemento = document.getElementById('animado');
+  
+  // Malo: muchos reflows
+  elemento.style.width = '100px';
+  elemento.style.height = '200px';
+  elemento.style.margin = '10px';
+  
+  // Bueno: un solo reflow
+  elemento.style.cssText = 'width: 100px; height: 200px; margin: 10px;';
+  
+  // Mejor: usando clases
+  // elemento.classList.add('animado');
+}
+
+// Web Workers para cálculos intensivos
+function iniciarCalculoIntensivo(datos) {
+  const worker = new Worker('calculo-worker.js');
+  
+  return new Promise((resolve, reject) => {
+    worker.onmessage = function(e) {
+      resolve(e.data);
+      worker.terminate();
+    };
+    
+    worker.onerror = function(error) {
+      reject(error);
+      worker.terminate();
+    };
+    
+    worker.postMessage(datos);
+  });
+}
+
+// Optimización para dispositivos móviles
+function optimizarParaMovil() {
+  // Detectar dispositivo
+  const esMovil = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
+    .test(navigator.userAgent);
+  
+  if (esMovil) {
+    // Reducir carga
+    document.querySelectorAll('.animacion-pesada')
+      .forEach(el => el.classList.add('version-ligera'));
+    
+    // Ajustar event listeners para pantalla táctil
+    document.querySelectorAll('.hover-element')
+      .forEach(el => {
+        el.addEventListener('touchstart', mostrarInfo);
+        el.removeEventListener('mouseenter', mostrarInfo);
+      });
+  }
+}
+
+// Virtualización de listas largas
+class ListaVirtual {
+  constructor(contenedor, items, alturaItem = 40) {
+    this.contenedor = contenedor;
+    this.items = items;
+    this.alturaItem = alturaItem;
+    
+    this.totalAltura = this.items.length * this.alturaItem;
+    this.visibles = Math.ceil(contenedor.clientHeight / alturaItem);
+    this.scrollTop = 0;
+    
+    this.init();
+  }
+```
